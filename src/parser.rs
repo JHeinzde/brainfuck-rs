@@ -1,10 +1,23 @@
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::ops::Deref;
 use std::ptr::null;
+use std::rc::Rc;
 
-struct ASTNode<'a> {
-    parent: Box<Option<&'a ASTNode<'a>>>,
-    child: Box<Option<&'a ASTNode<'a>>>,
-    body: Vec<Box<Option<&'a ASTNode<'a>>>>,
-    n_type: NodeType,
+struct ASTNode {
+    child: Option<Rc<RefCell<ASTNode>>>,
+    body: Vec<Rc<RefCell<ASTNode>>>,
+    ty: NodeType,
+}
+
+impl ASTNode {
+    pub fn set_child(mut self, n_child: Option<Rc<RefCell<ASTNode>>>) {
+        self.child = n_child;
+    }
+
+    pub fn add_to_body(mut self, new_content: Rc<RefCell<ASTNode>>) {
+        self.body.push(new_content);
+    }
 }
 
 #[derive(PartialEq)]
@@ -27,17 +40,17 @@ pub fn sanitize_source(src_code: &mut String) {
     })
 }
 
-pub fn convert_source_to_op_chain<'a>(src_code: &str) -> Box<ASTNode<'a>> {
+pub fn convert_source_to_op_chain(src_code: &str) -> Rc<RefCell<ASTNode>> {
     let mut i: usize = 1;
     let mut in_while_body = false;
-    let mut last_node: ASTNode;
+    let mut last_node: Rc<RefCell<ASTNode>>;
 
-    let mut while_loops: Vec<Box<ASTNode>> = Vec::new();
+    let mut while_loops: Vec<Rc<RefCell<ASTNode>>> = Vec::new();
     let mut current_while_loop: usize = 0;
 
-    last_node = convert_char_to_op(src_code.chars().nth(0).unwrap());
+    last_node = Rc::new(RefCell::new(convert_char_to_op(src_code.chars().nth(0).unwrap())));
 
-    let first_node = Box::new(last_node);
+    let first_node = Rc::clone(&last_node);
 
 
     while i != src_code.len() {
@@ -47,7 +60,7 @@ pub fn convert_source_to_op_chain<'a>(src_code: &str) -> Box<ASTNode<'a>> {
             .unwrap();
         let mut node = convert_char_to_op(instruction);
 
-        if node.n_type == NodeType::WhileEnd {
+        if node.ty == NodeType::WhileEnd {
             current_while_loop -= 1;
             if current_while_loop == 0 {
                 in_while_body = false;
@@ -55,37 +68,38 @@ pub fn convert_source_to_op_chain<'a>(src_code: &str) -> Box<ASTNode<'a>> {
             continue;
         }
 
-        node.parent = Box::new(Some(&last_node));
-        last_node.child = Box::new(Some(&node));
+        let node = Rc::new(RefCell::new(node));
+
+        last_node.deref().into_inner().set_child(Some(Rc::clone(&node)));
 
         if in_while_body {
             while_loops.get(current_while_loop - 1)
                 .unwrap()
-                .body
-                .push(Box::new(Some(&node)));
+                .into_inner()
+                .add_to_body(Rc::clone(&node));
         }
 
-        if node.n_type == NodeType::WhileBegin {
+        if node.into_inner().ty == NodeType::WhileBegin {
             in_while_body = true;
             current_while_loop += 1;
-            while_loops.push(Box::new(node));
+            while_loops.push(Rc::clone(&node));
         }
     }
 
     return first_node;
 }
 
-fn convert_char_to_op<'a>(chr: char) -> ASTNode<'a> {
+fn convert_char_to_op<'a>(chr: char) -> ASTNode {
     match chr {
-        '>' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::PtrInc } }
-        '<' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::PtrDec } }
-        '+' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::CellInc } }
-        '-' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::CellDec } }
-        '.' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::PutChar } }
-        ',' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::ReadChar } }
-        '[' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::WhileBegin } }
-        ']' => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::WhileEnd } }
-        _ => { ASTNode { parent: Box::new(None), child: Box::new(None), body: vec![], n_type: NodeType::Nop } }
+        '>' => { ASTNode { child: None, body: vec![], ty: NodeType::PtrInc } }
+        '<' => { ASTNode { child: None, body: vec![], ty: NodeType::PtrDec } }
+        '+' => { ASTNode { child: None, body: vec![], ty: NodeType::CellInc } }
+        '-' => { ASTNode { child: None, body: vec![], ty: NodeType::CellDec } }
+        '.' => { ASTNode { child: None, body: vec![], ty: NodeType::PutChar } }
+        ',' => { ASTNode { child: None, body: vec![], ty: NodeType::ReadChar } }
+        '[' => { ASTNode { child: None, body: vec![], ty: NodeType::WhileBegin } }
+        ']' => { ASTNode { child: None, body: vec![], ty: NodeType::WhileEnd } }
+        _ => { ASTNode { child: None, body: vec![], ty: NodeType::Nop } }
     }
 }
 
