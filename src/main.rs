@@ -1,4 +1,4 @@
-use std::fs::{File};
+use std::fs::File;
 use std::io::Read;
 use std::process::exit;
 
@@ -9,8 +9,9 @@ mod parser;
 fn main() {
     let mut src_code = read_source_code("test.brainfuck");
     sanitize_source(&mut src_code);
-    convert_source_to_op_chain(&src_code);
-    println!("{}", src_code);
+    let ast = convert_source_to_op_chain(&src_code);
+
+    println!("{:?}", ast);
 }
 
 fn read_source_code(filename: &str) -> String {
