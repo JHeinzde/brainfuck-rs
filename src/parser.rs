@@ -1,6 +1,5 @@
 use crate::parser::ast::{Ast, NodeType};
 
-mod s_linked_list;
 mod ast;
 
 pub fn sanitize_source(src_code: &mut String) {

@@ -3,9 +3,20 @@ pub struct Ast {
     head: Link,
 }
 
+pub struct IntoIter(Ast);
+
+pub struct Iter<'a> {
+    next: Option<&'a Node>,
+}
+
 #[derive(Debug)]
 struct Node {
     next: Link,
+    body: Option<Box<Ast>>,
+    ty: NodeType,
+}
+
+pub struct AstNode {
     body: Option<Box<Ast>>,
     ty: NodeType,
 }
@@ -54,11 +65,53 @@ impl Ast {
         }
     }
 
-    pub fn set_last_body(&mut self, body: Box<Ast>)  {
+    pub fn set_last_body(&mut self, body: Box<Ast>) {
         match &mut self.head {
             None => {}
             Some(link) => link.set_last_body(body)
         }
+    }
+
+    pub fn pop(&mut self) -> Option<AstNode> {
+        match &mut self.head {
+            None => None,
+            Some(_) => {
+                let head = self.head.take();
+                let head = head.unwrap();
+                self.head = head.next;
+
+                Some(AstNode {
+                    ty: head.ty,
+                    body: head.body,
+                })
+            }
+        }
+    }
+
+    pub fn into_iter(self) -> IntoIter {
+        IntoIter(self)
+    }
+
+    pub fn iter(&mut self) -> Iter {
+        Iter { next: self.head.as_deref() }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = (&'a NodeType, &'a Option<Box<Ast>>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next.map(|node| {
+            self.next = node.next.as_deref();
+            (&node.ty, &node.body)
+        })
+    }
+}
+
+impl Iterator for IntoIter {
+    type Item = AstNode;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.pop()
     }
 }
 
@@ -111,6 +164,7 @@ impl Node {
     }
 }
 
+
 #[cfg(test)]
 mod test {
     use crate::parser::ast::{Ast, NodeType};
@@ -127,6 +181,56 @@ mod test {
         while_body.push(NodeType::CellDec, None);
         ast.set_nth_body(1, Box::new(while_body));
 
-        println!("{:?}", ast);
+        let node = ast.pop();
+        let node = node.unwrap();
+
+        assert_eq!(NodeType::CellInc, node.ty);
+        assert!(node.body.is_none());
+    }
+
+    #[test]
+    fn into_iter_test() {
+        let mut ast = Ast::new();
+        ast.push(NodeType::CellInc, None);
+        ast.push(NodeType::WhileBegin, None);
+        ast.push(NodeType::WhileEnd, None);
+
+        let mut body = Ast::new();
+        body.push(NodeType::CellInc, None);
+        ast.set_nth_body(2, Box::new(body));
+
+        let mut iterator = ast.into_iter();
+        let item = iterator.next();
+        assert!(item.is_some());
+        let node = item.unwrap();
+
+        assert!(node.body.is_none());
+        assert_eq!(node.ty, NodeType::CellInc);
+    }
+
+    #[test]
+    fn iter_test() {
+        let mut ast = Ast::new();
+        ast.push(NodeType::CellInc, None);
+        ast.push(NodeType::WhileBegin, None);
+        ast.push(NodeType::WhileEnd, None);
+
+        let mut iter = ast.iter();
+
+        let node = iter.next();
+        assert!(node.is_some());
+
+        let (n_type, body) = node.unwrap();
+        assert_eq!(&NodeType::CellInc, n_type);
+        assert!(body.is_none());
+        let (n_type, body) = iter.next().unwrap();
+        assert_eq!(&NodeType::WhileBegin, n_type);
+        assert!(body.is_none());
+        let (n_type, body) = iter.next().unwrap();
+        assert_eq!(&NodeType::WhileEnd, n_type);
+        assert!(body.is_none());
+
+        let opt = iter.next();
+        assert!(opt.is_none());
     }
 }
