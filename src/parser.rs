@@ -1,3 +1,4 @@
+use std::fmt::Error;
 use crate::parser::ast::{Ast, NodeType};
 
 mod ast;

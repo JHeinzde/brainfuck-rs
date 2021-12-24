@@ -1,3 +1,6 @@
+use std::cmp::max;
+use std::ops::DerefMut;
+
 #[derive(Debug)]
 pub struct Ast {
     head: Link,
@@ -7,6 +10,10 @@ pub struct IntoIter(Ast);
 
 pub struct Iter<'a> {
     next: Option<&'a Node>,
+}
+
+pub struct IterMut<'a> {
+    next: Option<&'a mut Node>,
 }
 
 #[derive(Debug)]
@@ -88,12 +95,37 @@ impl Ast {
         }
     }
 
+    pub fn count_while_loops(&mut self) -> (usize, usize) {
+        match &mut self.head {
+            None => (0, 0),
+            Some(head) => head.while_loop_visit()
+        }
+    }
+
+    pub fn max_ptr_size(&mut self) -> usize {
+        let (pinc_s, pdec_s) = self.ptr_size();
+        max(pinc_s, pdec_s)
+    }
+
+    fn ptr_size(&mut self) -> (usize, usize) {
+        match &mut self.head {
+            None => (0, 0),
+            Some(head) => {
+                head.counter_ptr_ops()
+            }
+        }
+    }
+
     pub fn into_iter(self) -> IntoIter {
         IntoIter(self)
     }
 
     pub fn iter(&mut self) -> Iter {
         Iter { next: self.head.as_deref() }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_> {
+        IterMut { next: self.head.as_deref_mut() }
     }
 }
 
@@ -112,6 +144,17 @@ impl Iterator for IntoIter {
     type Item = AstNode;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.pop()
+    }
+}
+
+impl<'a> Iterator for IterMut<'a> {
+    type Item = (&'a mut NodeType, &'a mut Option<Box<Ast>>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next.take().map(|node| {
+            self.next = node.next.as_deref_mut();
+            (&mut node.ty, &mut node.body)
+        })
     }
 }
 
@@ -161,6 +204,64 @@ impl Node {
             }
             Some(next) => next.set_last_body(body)
         }
+    }
+
+    fn while_loop_visit(&mut self) -> (usize, usize) {
+        let mut result = (0, 0);
+        match &mut self.ty {
+            NodeType::WhileBegin => result.0 = result.0 + 1,
+            NodeType::WhileEnd => result.1 = result.1 + 1,
+            _ => {}
+        }
+
+        match &mut self.body {
+            None => {}
+            Some(body) => {
+                let (wb_result, we_result) = body.count_while_loops();
+                result.0 += wb_result;
+                result.1 += we_result;
+            }
+        }
+
+        match &mut self.next {
+            None => {}
+            Some(next) => {
+                let (wb_next, we_next) = next.while_loop_visit();
+                result.0 += wb_next;
+                result.1 += we_next;
+            }
+        }
+
+        return result;
+    }
+
+    fn counter_ptr_ops(&mut self) -> (usize, usize) {
+        let mut result = (0, 0);
+        match &mut self.ty {
+            NodeType::PtrInc => result.0 = result.0 + 1,
+            NodeType::PtrDec => result.1 = result.1 + 1,
+            _ => {}
+        }
+
+        match &mut self.body {
+            None => {}
+            Some(body) => {
+                let (pinc_body, pdec_body) = body.ptr_size();
+                result.0 += pinc_body;
+                result.1 += pdec_body;
+            }
+        }
+
+        match &mut self.next {
+            None => {}
+            Some(next) => {
+                let (pinc_next, pdec_body) = next.counter_ptr_ops();
+                result.0 += pinc_next;
+                result.1 += pdec_body;
+            }
+        }
+
+        return result;
     }
 }
 
@@ -232,5 +333,34 @@ mod test {
 
         let opt = iter.next();
         assert!(opt.is_none());
+    }
+
+    #[test]
+    fn test_while_loop_counter() {
+        let mut ast = Ast::new();
+        ast.push(NodeType::CellInc, None);
+        ast.push(NodeType::WhileBegin, None);
+        ast.push(NodeType::WhileEnd, None);
+
+        let mut ast_two = Ast::new();
+        ast_two.push(NodeType::WhileBegin, None);
+        ast_two.push(NodeType::CellInc, None);
+
+        ast.set_nth_body(1, Box::new(ast_two));
+
+        assert_eq!((2, 1), ast.count_while_loops());
+    }
+
+    #[test]
+    fn test_ptr_counter() {
+        let mut ast = Ast::new();
+        ast.push(NodeType::PtrInc, None);
+        ast.push(NodeType::PtrInc, None);
+        ast.push(NodeType::PtrDec, None);
+
+        ast.push(NodeType::WhileBegin, None);
+        ast.push(NodeType::CellInc, None);
+
+        assert_eq!(2, ast.max_ptr_size());
     }
 }
